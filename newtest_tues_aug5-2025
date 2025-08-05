@@ -1,0 +1,109 @@
+http://colab.google.com
+
+#config colab for gpu
+# -> connect
+# -> change runtime type
+# -> set to T4 GPU
+# -> "+ code" to get notebook prompt
+
+
+!pip install colab-xterm
+
+
+%load_ext colabxterm
+
+%xterm 
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve
+
+%xterm
+ollama run deepseek-r1:1.5b
+
+
+# now with a separate python notebook term: 
+
+
+import requests
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+
+OLLAMA_URL = "http://localhost:11434"
+MODEL = "deepseek-r1:1.5b"  # or "tinyllama"
+
+DOCUMENT = """
+OpenAI develops advanced AI models like ChatGPT. These tools are used for writing, coding, translation, and summarization.
+The organization also emphasizes safety research, policy alignment, and reinforcement learning at scale.
+"""
+
+QUESTION = "What is OpenAI focusing on?"
+
+# === Chunking logic
+def chunk_text(text, chunk_size=40):
+    words = text.split()
+    return [" ".join(words[i:i + chunk_size]) for i in range(0, len(words), chunk_size)]
+
+# === Call Ollama for completion
+def ollama_complete(prompt):
+    response = requests.post(
+        f"{OLLAMA_URL}/api/generate",
+        json={"model": MODEL, "prompt": prompt, "stream": False}
+    )
+    return response.json()["response"].strip()
+
+# === Fake embedding using LLM
+def embed(text):
+    prompt = f"""Generate a 10-dimensional embedding as a list of numbers for the following text:
+\"\"\"
+{text}
+\"\"\"
+Embedding:"""
+    try:
+        raw = ollama_complete(prompt)
+        print("Embedding:", raw)
+        #return np.array(eval(raw))
+        return np.array(eval("[0.527, 0.341, 0.678, 0.912, 0.854, 0.732, 0.456, 0.231, 0.123, 0.045]")
+    except Exception as e:
+        print("⚠️ Embedding failed:", e)
+        return np.zeros(10)
+
+# === Run RAG
+chunks = chunk_text(DOCUMENT)
+chunk_embeddings = [embed(chunk) for chunk in chunks]
+query_embedding = embed(QUESTION)
+
+similarities = [
+    cosine_similarity([query_embedding], [chunk])[0][0]
+    for chunk in chunk_embeddings
+]
+
+best_idx = int(np.argmax(similarities))
+
+
+print(f"Best chunk index: {best_idx}")
+
+
+best_chunk = chunks[best_idx]
+print(f"Best chunk: {best_chunk}")
+
+
+
+
+final_prompt = f"""Answer the following question using only the passage below.
+
+Passage:
+\"\"\"
+{best_chunk}
+\"\"\"
+
+Question: {QUESTION}
+Answer:"""
+
+answer = ollama_complete(final_prompt)
+
+# === Print result
+print(f"\nBest chunk:\n{best_chunk}")
+print(f"\nSimilarity scores: {similarities}")
+print(f"\nAnswer:\n{answer}")
+
+
+Footer
